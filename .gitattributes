@@ -1,0 +1,8 @@
+# 自前のソースは改行を正規化する
+* text=auto eol=lf
+
+# 取り込み物はそのまま扱う（4MB の埋め込みデータを含むため触らせない）
+vendor/** -text -diff
+
+# Windows 用のバッチは CRLF でないと動かない
+*.bat text eol=crlf

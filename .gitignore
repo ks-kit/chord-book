@@ -1,0 +1,12 @@
+# 著作権のある歌詞が描かれたテスト画像。公開しない
+.claude/*.png
+.claude/*.jpg
+
+# 使っていない高精度モデル（効果が無かったので採用せず）
+vendor/tessdata-best/
+
+# OS・エディタ
+Thumbs.db
+desktop.ini
+.DS_Store
+*.bak

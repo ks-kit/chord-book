@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>コード帳</title>
+<meta name="theme-color" content="#15171c">
+<meta name="description" content="弾き語り用のコード譜コレクション">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="コード帳">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ══════════ ライブラリ ══════════ -->
+<section id="screen-library" class="screen is-active">
+  <header class="appbar">
+    <h1 class="appbar__title">コード帳</h1>
+    <div class="appbar__actions">
+      <button class="iconbtn" id="btn-menu" aria-label="メニュー" aria-haspopup="true">⋯</button>
+    </div>
+  </header>
+
+  <div class="searchbar">
+    <input type="search" id="search" placeholder="曲名・アーティストで探す" autocomplete="off" enterkeyhint="search">
+  </div>
+
+  <div class="list" id="song-list"></div>
+
+  <div class="empty" id="empty-state" hidden>
+    <p class="empty__title">まだ曲がありません</p>
+    <p class="empty__body">右下の＋から、コード譜を貼り付けて追加します。<br>ページごと全部コピーして貼っても、譜面の部分だけを取り出します。</p>
+    <button class="btn btn--ghost" id="btn-sample">サンプル曲を入れてみる</button>
+  </div>
+
+  <button class="fab" id="btn-add" aria-label="曲を追加">＋</button>
+</section>
+
+<!-- ══════════ 追加・編集 ══════════ -->
+<section id="screen-edit" class="screen">
+  <header class="appbar">
+    <button class="textbtn" id="btn-edit-cancel">キャンセル</button>
+    <h1 class="appbar__title" id="edit-heading">曲を追加</h1>
+    <button class="textbtn textbtn--strong" id="btn-edit-save">保存</button>
+  </header>
+
+  <div class="form">
+    <label class="field">
+      <span class="field__label">曲名</span>
+      <input type="text" id="f-title" placeholder="例: 空も飛べるはず">
+    </label>
+    <label class="field">
+      <span class="field__label">アーティスト</span>
+      <input type="text" id="f-artist" placeholder="例: スピッツ">
+    </label>
+    <button class="btn btn--ghost btn--wide" id="btn-lookup">曲名をネットで照合する</button>
+    <p class="form__note">誤読を直せます。<b>曲名とアーティスト名だけ</b>を Apple の楽曲検索に送ります（曲データや歌詞は送りません）</p>
+    <div class="lookup" id="lookup" hidden></div>
+
+    <label class="field">
+      <span class="field__label">
+        コード譜
+        <span class="field__hint">ページごと全部コピーして貼ってOK</span>
+      </span>
+      <textarea id="f-body" rows="14" spellcheck="false" placeholder="C            G&#10;この街のどこかで&#10;Am           F&#10;君を待っている"></textarea>
+    </label>
+    <button class="btn btn--accent" id="btn-ocr">画像から読み取る</button>
+    <p class="form__note">スクショをコピーして、この画面で <b>Ctrl+V</b>（iPhoneは長押し→貼り付け）でも読み取れます。<b>複数枚</b>をまとめて選ぶこともできます。重なっている行は自動で落とします</p>
+    <input type="file" id="ocr-file" accept="image/*" multiple hidden>
+    <p class="ocr-status" id="ocr-status" hidden></p>
+    <div class="fixlist" id="fixlist" hidden></div>
+
+    <div class="form__row">
+      <button class="btn btn--ghost" id="btn-paste">クリップボードから貼り付け</button>
+      <button class="btn btn--ghost" id="btn-preview">解析結果を確認</button>
+    </div>
+    <div class="parse-report" id="parse-report" hidden></div>
+    <button class="btn btn--danger-ghost" id="btn-delete" hidden>この曲を削除</button>
+  </div>
+</section>
+
+<!-- ══════════ 表示 ══════════ -->
+<section id="screen-view" class="screen">
+  <header class="appbar appbar--view">
+    <button class="iconbtn" id="btn-back" aria-label="戻る">‹</button>
+    <div class="appbar__titlewrap">
+      <h1 class="appbar__title" id="view-title">曲名</h1>
+      <p class="appbar__sub" id="view-sub"></p>
+    </div>
+    <button class="iconbtn" id="btn-view-menu" aria-label="メニュー">⋯</button>
+  </header>
+
+  <div class="sheet" id="sheet"></div>
+
+  <div class="toolbar" id="toolbar">
+    <button class="toolbar__handle" id="btn-toolbar-toggle" aria-label="ツールバーを開閉">⌃</button>
+
+    <div class="toolbar__body">
+      <div class="ctrl">
+        <span class="ctrl__label">転調</span>
+        <div class="stepper">
+          <button class="stepper__btn" data-act="key-down" aria-label="半音下げる">−</button>
+          <button class="stepper__value" id="key-value" data-act="key-reset">C</button>
+          <button class="stepper__btn" data-act="key-up" aria-label="半音上げる">＋</button>
+        </div>
+      </div>
+
+      <div class="ctrl">
+        <span class="ctrl__label">カポ</span>
+        <div class="stepper">
+          <button class="stepper__btn" data-act="capo-down" aria-label="カポを下げる">−</button>
+          <button class="stepper__value" id="capo-value" data-act="capo-reset">なし</button>
+          <button class="stepper__btn" data-act="capo-up" aria-label="カポを上げる">＋</button>
+        </div>
+      </div>
+
+      <div class="ctrl">
+        <span class="ctrl__label">文字</span>
+        <div class="stepper">
+          <button class="stepper__btn" data-act="font-down" aria-label="文字を小さく">小</button>
+          <button class="stepper__value" id="font-value" data-act="font-reset">標準</button>
+          <button class="stepper__btn" data-act="font-up" aria-label="文字を大きく">大</button>
+        </div>
+      </div>
+
+      <div class="ctrl ctrl--scroll">
+        <button class="playbtn" id="btn-scroll" aria-label="自動スクロール">▶</button>
+        <input type="range" id="scroll-speed" min="1" max="30" value="8" aria-label="スクロール速度">
+        <span class="ctrl__speed" id="scroll-speed-label">8</span>
+      </div>
+
+      <p class="toolbar__note" id="capo-hint"></p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════ 押さえ方シート ══════════ -->
+<div class="backdrop" id="backdrop" hidden></div>
+<div class="chordsheet" id="chordsheet" hidden role="dialog" aria-label="コードの押さえ方">
+  <div class="chordsheet__grab"></div>
+  <div class="chordsheet__head">
+    <h2 class="chordsheet__name" id="cs-name">C</h2>
+    <button class="iconbtn" id="cs-close" aria-label="閉じる">✕</button>
+  </div>
+  <div class="chordsheet__body" id="cs-body"></div>
+  <p class="chordsheet__note" id="cs-note"></p>
+</div>
+
+<!-- ══════════ メニュー ══════════ -->
+<div class="menu" id="menu" hidden></div>
+<input type="file" id="import-file" accept="application/json,.json" hidden>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="chords.js"></script>
+<script src="parser.js"></script>
+<script src="ocr.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
