@@ -58,7 +58,16 @@ python .claude/devserver.py 8766
 **ネット公開が必要。** ローカルファイルは iPhone の Safari で開けず、ホーム画面にも追加できない。
 カメラアプリ（`..\カメラアプリ`）と同じく GitHub Pages に置くのが一番楽。公開したら Safari で開き、共有ボタン →「ホーム画面に追加」。
 
-まだ公開していない。公開先を決めたらここに URL を書く。
+**公開済み（2026-09-13）**
+
+- アプリ: https://ks-kit.github.io/chord-book/
+- リポジトリ: https://github.com/ks-kit/chord-book（public）
+
+Safari で開いて 共有 →「ホーム画面に追加」。オフラインでも開ける。
+
+⚠ **公開リポジトリなので、著作権のある歌詞を含むファイルを入れないこと。**
+`.gitignore` で `.claude/*.png`（歌詞入りのテスト画像）を除外している。
+曲データはファイルに含まれない（端末の localStorage のみ）。
 
 
 
