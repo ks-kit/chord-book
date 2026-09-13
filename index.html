@@ -102,36 +102,30 @@
     <button class="toolbar__handle" id="btn-toolbar-toggle" aria-label="ツールバーを開閉">⌃</button>
 
     <div class="toolbar__body">
-      <div class="ctrl">
-        <span class="ctrl__label">転調</span>
-        <div class="stepper">
-          <button class="stepper__btn" data-act="key-down" aria-label="半音下げる">−</button>
-          <button class="stepper__value" id="key-value" data-act="key-reset">C</button>
-          <button class="stepper__btn" data-act="key-up" aria-label="半音上げる">＋</button>
+      <!-- 1段目: 転調とカポ -->
+      <div class="tb-pair">
+        <div class="ctrl">
+          <span class="ctrl__label">転調</span>
+          <div class="stepper">
+            <button class="stepper__btn" data-act="key-down" aria-label="半音下げる">−</button>
+            <button class="stepper__value" id="key-value" data-act="key-reset">C</button>
+            <button class="stepper__btn" data-act="key-up" aria-label="半音上げる">＋</button>
+          </div>
+        </div>
+        <div class="ctrl">
+          <span class="ctrl__label">カポ</span>
+          <div class="stepper">
+            <button class="stepper__btn" data-act="capo-down" aria-label="カポを下げる">−</button>
+            <button class="stepper__value" id="capo-value" data-act="capo-reset">なし</button>
+            <button class="stepper__btn" data-act="capo-up" aria-label="カポを上げる">＋</button>
+          </div>
         </div>
       </div>
 
-      <div class="ctrl">
-        <span class="ctrl__label">カポ</span>
-        <div class="stepper">
-          <button class="stepper__btn" data-act="capo-down" aria-label="カポを下げる">−</button>
-          <button class="stepper__value" id="capo-value" data-act="capo-reset">なし</button>
-          <button class="stepper__btn" data-act="capo-up" aria-label="カポを上げる">＋</button>
-        </div>
-      </div>
-
-      <div class="ctrl">
-        <span class="ctrl__label">文字</span>
-        <div class="stepper">
-          <button class="stepper__btn" data-act="font-down" aria-label="文字を小さく">小</button>
-          <button class="stepper__value" id="font-value" data-act="font-reset">標準</button>
-          <button class="stepper__btn" data-act="font-up" aria-label="文字を大きく">大</button>
-        </div>
-      </div>
-
+      <!-- 2段目: メトロノーム（拍の点は ♩ ボタンの中に置いて1段ぶん節約） -->
       <div class="ctrl ctrl--metro">
         <span class="ctrl__label">BPM</span>
-        <button class="playbtn playbtn--metro" id="btn-metro" aria-label="メトロノームを鳴らす">♩</button>
+        <button class="playbtn playbtn--metro" id="btn-metro" aria-label="メトロノームを鳴らす">♩<span class="beats" id="beat-dots" aria-hidden="true"></span></button>
         <div class="stepper stepper--bpm">
           <button class="stepper__btn" data-act="bpm-down" aria-label="テンポを下げる">−</button>
           <input class="stepper__input" id="bpm-input" type="number" inputmode="numeric"
@@ -141,13 +135,23 @@
         <button class="chipbtn" id="btn-tap">タップ</button>
         <button class="chipbtn" id="btn-beats" aria-label="1小節の拍数">4拍</button>
       </div>
-      <div class="beats" id="beat-dots" aria-hidden="true"></div>
 
-      <div class="ctrl ctrl--scroll">
-        <span class="ctrl__label">送り</span>
-        <button class="playbtn" id="btn-scroll" aria-label="自動スクロール">▶</button>
-        <input type="range" id="scroll-speed" min="1" max="30" value="8" aria-label="スクロール速度">
-        <span class="ctrl__speed" id="scroll-speed-label">8</span>
+      <!-- 3段目: 文字の大きさと送り -->
+      <div class="tb-pair">
+        <div class="ctrl">
+          <span class="ctrl__label">文字</span>
+          <div class="stepper">
+            <button class="stepper__btn" data-act="font-down" aria-label="文字を小さく">小</button>
+            <button class="stepper__value" id="font-value" data-act="font-reset">標準</button>
+            <button class="stepper__btn" data-act="font-up" aria-label="文字を大きく">大</button>
+          </div>
+        </div>
+        <div class="ctrl ctrl--scroll">
+          <span class="ctrl__label">送り</span>
+          <button class="playbtn" id="btn-scroll" aria-label="自動スクロール">▶</button>
+          <input type="range" id="scroll-speed" min="1" max="30" value="8" aria-label="スクロール速度">
+          <span class="ctrl__speed" id="scroll-speed-label">8</span>
+        </div>
       </div>
 
       <p class="toolbar__note" id="capo-hint"></p>

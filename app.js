@@ -576,8 +576,37 @@
     $('scroll-speed-label').textContent = prefs.speed;
 
     renderSheet();
+    $('toolbar').classList.toggle('is-collapsed', !!prefs.toolbarCollapsed);
     show('view');
     loadMetronomeForSong();
+  }
+
+  /**
+   * コード名を「ルート（大）＋ 残り（小）」に分けて描く。
+   * 弾きながら一番見たいのはルートなので大きくし、m7 や onA の部分は小さくする。
+   * こうすると文字を大きくしても横幅はむしろ減る（Bm7onA: 69px → 実測は検証を参照）。
+   * 表記そのもの（AonC# など）は変えない。
+   */
+  function fillChordLabel(el, name) {
+    el.textContent = '';
+    const c = Chords.parse(name);
+    if (!c) { el.textContent = name; return; }
+    const root = document.createElement('span');
+    root.className = 'ch-root';
+    root.textContent = c.root;
+    el.append(root);
+    if (c.quality) {
+      const q = document.createElement('span');
+      q.className = 'ch-rest';
+      q.textContent = c.quality;
+      el.append(q);
+    }
+    if (c.bass) {
+      const b = document.createElement('span');
+      b.className = 'ch-rest ch-bass';
+      b.textContent = (c.sep === 'on' ? 'on' : '/') + c.bass;
+      el.append(b);
+    }
   }
 
   /** 表示するコード = 原曲 + 転調 − カポ */
@@ -620,8 +649,9 @@
         const ch = document.createElement('span');
         if (seg.chord) {
           ch.className = 'seg__ch seg__ch--tap';
-          ch.textContent = sh ? Chords.transposeText(seg.chord, sh, preferFlat) : seg.chord;
-          ch.dataset.chord = ch.textContent;
+          const name = sh ? Chords.transposeText(seg.chord, sh, preferFlat) : seg.chord;
+          fillChordLabel(ch, name);
+          ch.dataset.chord = name;
         } else if (seg.filler) {
           ch.className = 'seg__ch seg__ch--filler';
           ch.textContent = seg.filler;
@@ -655,7 +685,8 @@
     if (key) {
       const sFlat = soundingFlat(current, key, textFlat);
       const sounding = Chords.noteName(Chords.NOTE_INDEX[key.root] + t, sFlat) + (key.minor ? 'm' : '');
-      $('key-value').textContent = sounding + (t ? `（${t > 0 ? '+' : ''}${t}）` : '');
+      // 半角カッコ。全角だと「Ebm（+10）」が狭いボタンから1px はみ出した
+      $('key-value').textContent = sounding + (t ? `(${t > 0 ? '+' : ''}${t})` : '');
     } else {
       $('key-value').textContent = t ? `${t > 0 ? '+' : ''}${t}半音` : '原曲キー';
     }
@@ -1420,7 +1451,9 @@
       if (b) onSyncAction(b.dataset.sync);
     });
     $('btn-toolbar-toggle').addEventListener('click', () => {
-      $('toolbar').classList.toggle('is-collapsed');
+      const collapsed = $('toolbar').classList.toggle('is-collapsed');
+      prefs.toolbarCollapsed = collapsed;             // 畳んだかどうかを覚えておく
+      savePrefs();
     });
     $('btn-scroll').addEventListener('click', () => { rafId ? stopScroll() : startScroll(); });
     $('scroll-speed').addEventListener('input', (e) => {
