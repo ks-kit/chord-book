@@ -648,10 +648,11 @@
 
         const ch = document.createElement('span');
         if (seg.chord) {
-          ch.className = 'seg__ch seg__ch--tap';
+          ch.className = 'seg__ch seg__ch--tap' + (seg.corrected ? ' seg__ch--guessed' : '');
           const name = sh ? Chords.transposeText(seg.chord, sh, preferFlat) : seg.chord;
           fillChordLabel(ch, name);
           ch.dataset.chord = name;
+          if (seg.corrected) ch.title = `読み取りの「${seg.corrected}」を ${seg.chord} と解釈しました`;
         } else if (seg.filler) {
           // 読めなかった語は、記号（| や x2）と区別して「直す場所」と分かる見た目にする
           ch.className = 'seg__ch seg__ch--filler' + (seg.unread ? ' seg__ch--unread' : '');

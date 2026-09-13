@@ -40,6 +40,11 @@ const Sheet = (() => {
     const letters = t.replace(/[^A-Za-z]/g, '');
     // on＋ベース音（onC、onc）は分数コードの読み崩れなので単語ではない
     if (/on[A-Ga-g][#b]?$/i.test(t)) return false;
+    // 英単語に # は入らない（F#aud など）
+    if (t.indexOf('#') !== -1) return false;
+    // 1文字違いでコード名になる語は読み崩れとみなす（F#aud → F#aug）。
+    // 以前は aud を英単語の一部と誤判定し、その行をまるごと歌詞扱いにした（2026-09-13）
+    if (Chords.nearest(t)) return false;
     // 小文字が3つ以上続けば英単語とみなす（the、sound、baby など）
     return /[a-z]{3,}/.test(letters);
   }
@@ -96,8 +101,15 @@ const Sheet = (() => {
       } else if (FILLER.has(token)) {
         out.push({ text: token, col, filler: true });
       } else if (token) {
-        // 読めなかった語も消さずに、薄い色で位置どおり出す（直す場所だと分かるように）
-        out.push({ text: token, col, filler: true, unread: true });
+        const fixed = Chords.nearest(token);
+        if (fixed) {
+          // 1文字違いで一意に直せる読み崩れは、直したコードとして出す（F#aud → F#aug）。
+          // 本文は変えないので、元の綴りを corrected に残して印を付ける
+          out.push({ text: fixed, col, filler: false, corrected: token });
+        } else {
+          // 読めなかった語も消さずに、薄い色で位置どおり出す（直す場所だと分かるように）
+          out.push({ text: token, col, filler: true, unread: true });
+        }
       }
     }
     return out;
@@ -136,6 +148,7 @@ const Sheet = (() => {
         chord: chords[i].filler ? null : chords[i].text,
         filler: chords[i].filler ? chords[i].text : null,
         unread: !!chords[i].unread,
+        corrected: chords[i].corrected || null,
         lyric: chars.slice(from, Math.max(from, to)).join('')
       });
     }

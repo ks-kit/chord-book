@@ -84,6 +84,49 @@ const Chords = (() => {
     return parse(token) !== null;
   }
 
+  /** 2つの文字列の編集距離が1以下か（置き換え・挿入・削除を1回まで） */
+  function withinOneEdit(a, b) {
+    if (a === b) return true;
+    const la = a.length, lb = b.length;
+    if (Math.abs(la - lb) > 1) return false;
+    let i = 0, j = 0, edits = 0;
+    while (i < la && j < lb) {
+      if (a[i] === b[j]) { i++; j++; continue; }
+      if (++edits > 1) return false;
+      if (la > lb) i++;
+      else if (lb > la) j++;
+      else { i++; j++; }
+    }
+    return edits + (la - i) + (lb - j) <= 1;
+  }
+
+  /**
+   * OCR の読み崩れを、1文字違いまでで正しいコード名に直す。直せなければ null。
+   *   F#aud → F#aug（g を d と読み違え）、Asud4 → Asus4
+   * ・ルート（A〜G）は合っている前提で、残りの部分（m7、aug、sus4 など）だけを直す
+   * ・候補が2つ以上あって決めきれない時は直さない（間違ったコードに化けさせないため）
+   * ・残りが3文字未満のものは直さない。短いと英単語が偶然コードに一致する
+   *   （Aim → Adim になった。2026-09-13）
+   */
+  function nearest(token) {
+    const raw = String(token || '').trim();
+    if (!raw) return null;
+    if (isChordToken(raw)) return parse(raw).text;
+    const m = /^([A-G][#b♯♭]?)(.*?)(?:(on|\/)([A-Ga-g][#b♯♭]?))?$/.exec(raw);
+    if (!m) return null;
+    const root = m[1], rest = m[2] || '', sep = m[3], bass = m[4];
+    if (rest.length < 3) return null;
+
+    const hits = [];
+    for (const q of QUALITIES) {
+      if (q.length < 2) continue;
+      if (withinOneEdit(rest, q)) hits.push(q);
+    }
+    if (hits.length !== 1) return null;
+    const name = root + hits[0] + (bass ? (sep === 'on' ? 'on' : '/') + bass : '');
+    return isChordToken(name) ? parse(name).text : null;
+  }
+
   /** 半音単位で移調した表記を返す。preferFlat で ♭表記に寄せる。 */
   function transpose(chordObj, semitones, preferFlat) {
     if (!chordObj) return null;
@@ -472,7 +515,7 @@ const Chords = (() => {
 
   return {
     SHARP, FLAT, NOTE_INDEX,
-    parse, isChordToken, transpose, transposeText, noteName,
+    parse, isChordToken, nearest, transpose, transposeText, noteName,
     shape, diagramSVG
   };
 })();

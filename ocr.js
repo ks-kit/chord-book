@@ -204,7 +204,8 @@ const Ocr = (() => {
         }
       }
     }
-    return null;
+    // 文字の置き換え表で直せなければ、m7 や aug の部分を1文字違いまで直す（F#aud → F#aug）
+    return Chords.nearest(t0);
   }
 
   /** 大文字小文字の揺れを吸収した候補 */

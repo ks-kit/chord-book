@@ -258,6 +258,8 @@ button { background: none; border: 0; cursor: pointer; }
 .seg__ch--filler { color: var(--text-faint); font-weight: 500; font-size: .84em; }
 /* 読めなかったコード: 薄い赤で点線の下線。直す場所だと分かるように */
 .seg__ch--unread { color: var(--danger); opacity: .75; text-decoration: underline dotted; text-underline-offset: 3px; }
+/* 読み崩れを1文字違いで補正して表示しているコード: いつもの色のまま、点線の下線だけ付ける */
+.seg__ch--guessed { text-decoration: underline dotted; text-decoration-color: color-mix(in srgb, var(--accent) 60%, transparent); text-underline-offset: 3px; }
 .seg__ly { white-space: pre; }
 .seg__ly { min-height: 1.35em; }   /* 歌詞が無くてもコードの段を保つ */
 /* コードが無い枠は、高さ（ベースライン）だけ残して幅は取らせない */
