@@ -29,6 +29,7 @@
   <div class="searchbar">
     <input type="search" id="search" placeholder="曲名・アーティストで探す" autocomplete="off" enterkeyhint="search">
   </div>
+  <button class="syncline" id="sync-line" type="button" hidden></button>
 
   <div class="list" id="song-list"></div>
 
@@ -128,7 +129,22 @@
         </div>
       </div>
 
+      <div class="ctrl ctrl--metro">
+        <span class="ctrl__label">BPM</span>
+        <button class="playbtn playbtn--metro" id="btn-metro" aria-label="メトロノームを鳴らす">♩</button>
+        <div class="stepper stepper--bpm">
+          <button class="stepper__btn" data-act="bpm-down" aria-label="テンポを下げる">−</button>
+          <input class="stepper__input" id="bpm-input" type="number" inputmode="numeric"
+                 min="30" max="300" step="1" value="90" aria-label="BPM">
+          <button class="stepper__btn" data-act="bpm-up" aria-label="テンポを上げる">＋</button>
+        </div>
+        <button class="chipbtn" id="btn-tap">タップ</button>
+        <button class="chipbtn" id="btn-beats" aria-label="1小節の拍数">4拍</button>
+      </div>
+      <div class="beats" id="beat-dots" aria-hidden="true"></div>
+
       <div class="ctrl ctrl--scroll">
+        <span class="ctrl__label">送り</span>
         <button class="playbtn" id="btn-scroll" aria-label="自動スクロール">▶</button>
         <input type="range" id="scroll-speed" min="1" max="30" value="8" aria-label="スクロール速度">
         <span class="ctrl__speed" id="scroll-speed-label">8</span>
@@ -151,6 +167,35 @@
   <p class="chordsheet__note" id="cs-note"></p>
 </div>
 
+<!-- ══════════ タップでテンポ ══════════ -->
+<div class="chordsheet tapsheet" id="tapsheet" hidden role="dialog" aria-label="タップでテンポを設定">
+  <div class="chordsheet__grab"></div>
+  <div class="chordsheet__head">
+    <h2 class="chordsheet__name">テンポをタップ</h2>
+    <button class="iconbtn" id="tap-close" aria-label="閉じる">✕</button>
+  </div>
+  <button class="tappad" id="tap-pad" type="button">
+    <span class="tappad__bpm" id="tap-bpm">—</span>
+    <span class="tappad__unit">BPM</span>
+    <span class="tappad__hint" id="tap-hint">曲に合わせて、ここを一定のリズムでタップ</span>
+  </button>
+  <p class="tapsheet__note">PCではスペースキーでも叩けます。2秒あけると数え直します。</p>
+  <div class="tapsheet__row">
+    <button class="btn btn--ghost" id="tap-reset" type="button">やり直す</button>
+    <button class="btn btn--accent tapsheet__apply" id="tap-apply" type="button" disabled>この値にする</button>
+  </div>
+</div>
+
+<!-- ══════════ 同期 ══════════ -->
+<div class="chordsheet syncsheet" id="syncsheet" hidden role="dialog" aria-label="Dropboxと同期">
+  <div class="chordsheet__grab"></div>
+  <div class="chordsheet__head">
+    <h2 class="chordsheet__name">Dropbox と同期</h2>
+    <button class="iconbtn" id="sync-close" aria-label="閉じる">✕</button>
+  </div>
+  <div class="syncsheet__body" id="sync-body"></div>
+</div>
+
 <!-- ══════════ メニュー ══════════ -->
 <div class="menu" id="menu" hidden></div>
 <input type="file" id="import-file" accept="application/json,.json" hidden>
@@ -160,6 +205,8 @@
 <script src="chords.js"></script>
 <script src="parser.js"></script>
 <script src="ocr.js"></script>
+<script src="metronome.js"></script>
+<script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

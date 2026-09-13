@@ -1,4 +1,7 @@
-/* app.js — コード帳 本体 */
+/* app.js — コード帳 本体
+   ⚠ 他のファイルの Chords / Sheet / Ocr / Metronome / TapTempo / Sync は const で宣言している。
+     const はグローバルでも window のプロパティにならないので、存在チェックは
+     window.Sync ではなく typeof Sync === 'undefined' で書くこと（2026-09-13 に3件の不具合を出した） */
 (() => {
   'use strict';
 
@@ -45,12 +48,23 @@
     catch (e) { /* 既定のまま */ }
   }
 
-  function saveSongs() {
+  function saveSongs(opts) {
     try {
       localStorage.setItem(KEY_SONGS, JSON.stringify(songs));
     } catch (e) {
       toast('保存できませんでした。端末の空き容量を確認してください');
     }
+    // 同期で受け取った結果を書く時は、また同期を呼ばない（呼び合いを防ぐ）
+    if (!(opts && opts.fromSync)) scheduleSync();
+  }
+
+  /* 削除した曲は「消した印（deleted）」として残す。他の端末に削除を伝えるため。
+     画面に出すときはいつもこれを通す */
+  function live() {
+    return songs.filter(s => !s.deleted);
+  }
+  function findLive(id) {
+    return songs.find(s => s.id === id && !s.deleted) || null;
   }
 
   function savePrefs() {
@@ -67,7 +81,7 @@
     for (const s of document.querySelectorAll('.screen')) s.classList.remove('is-active');
     $('screen-' + name).classList.add('is-active');
     closeMenu();
-    if (name !== 'view') { stopScroll(); releaseWake(); }
+    if (name !== 'view') { stopScroll(); releaseWake(); stopMetronome(); }
     else { requestWake(); }
   }
 
@@ -78,12 +92,13 @@
     const list = $('song-list');
     list.textContent = '';
 
-    const shown = songs
+    const all = live();
+    const shown = all
       .filter(s => !q || (s.title + ' ' + (s.artist || '')).toLowerCase().includes(q))
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-    $('empty-state').hidden = songs.length > 0;
-    list.hidden = songs.length === 0;
+    $('empty-state').hidden = all.length > 0;
+    list.hidden = all.length === 0;
 
     for (const s of shown) {
       const card = document.createElement('button');
@@ -161,7 +176,7 @@
 
   function openEditor(id) {
     editingId = id || null;
-    const s = id ? songs.find(x => x.id === id) : null;
+    const s = id ? findLive(id) : null;
     $('edit-heading').textContent = s ? '曲を編集' : '曲を追加';
     $('f-title').value  = s ? (s.title || '')  : '';
     $('f-artist').value = s ? (s.artist || '') : '';
@@ -190,7 +205,7 @@
     }
 
     if (editingId) {
-      const s = songs.find(x => x.id === editingId);
+      const s = findLive(editingId);
       Object.assign(s, { title, artist, body, updatedAt: Date.now() });
     } else {
       songs.push({
@@ -543,7 +558,7 @@
   /* ══════════ 表示 ══════════ */
 
   function openSong(id) {
-    current = songs.find(s => s.id === id);
+    current = findLive(id);
     if (!current) return;
     if (current.transpose == null) current.transpose = 0;
     if (current.capo == null) current.capo = 0;
@@ -562,6 +577,7 @@
 
     renderSheet();
     show('view');
+    loadMetronomeForSong();
   }
 
   /** 表示するコード = 原曲 + 転調 − カポ */
@@ -832,7 +848,8 @@
       items.push(['edit', 'この曲を編集'], ['allchords', '使うコードを一覧で見る'],
                  ['reset', '転調・カポをリセット']);
     }
-    items.push(['export', 'バックアップを書き出す'], ['import', 'バックアップを読み込む'],
+    items.push(['sync', 'Dropbox と同期'],
+               ['export', 'バックアップを書き出す'], ['import', 'バックアップを読み込む'],
                ['theme', '表示テーマを切り替え']);
 
     menu.innerHTML = items.map(([a, l]) =>
@@ -854,13 +871,14 @@
       case 'export':    exportBackup(); break;
       case 'import':    $('import-file').click(); break;
       case 'theme':     toggleTheme(); break;
+      case 'sync':      openSyncSheet(); break;
     }
   }
 
   /* ══════════ バックアップ ══════════ */
 
   function exportBackup() {
-    const data = JSON.stringify({ app: 'chordbook', version: 1, exportedAt: new Date().toISOString(), songs }, null, 1);
+    const data = JSON.stringify({ app: 'chordbook', version: 1, exportedAt: new Date().toISOString(), songs: live() }, null, 1);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -872,7 +890,7 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    toast(songs.length + '曲を書き出しました');
+    toast(live().length + '曲を書き出しました');
   }
 
   function importBackup(file) {
@@ -961,6 +979,296 @@
     saveSongs();
     renderLibrary();
     toast('サンプル曲を追加しました');
+  }
+
+  /* ══════════ メトロノーム ══════════ */
+
+  const BEAT_CHOICES = [2, 3, 4, 6];
+  const DEFAULT_BPM = 90;
+
+  function songBpm()   { return (current && current.bpm)   || DEFAULT_BPM; }
+  function songBeats() { return (current && current.beats) || 4; }
+
+  /** 曲を開いたときに、その曲のテンポと拍数を反映する */
+  function loadMetronomeForSong() {
+    stopMetronome();
+    Metronome.setBpm(songBpm());
+    Metronome.setBeats(songBeats());
+    $('bpm-input').value = Metronome.getBpm();
+    $('btn-beats').textContent = Metronome.getBeats() + '拍';
+    renderBeatDots();
+  }
+
+  function renderBeatDots() {
+    const box = $('beat-dots');
+    box.textContent = '';
+    const n = Metronome.getBeats();
+    for (let i = 0; i < n; i++) {
+      const d = document.createElement('span');
+      d.className = 'beats__dot' + (i === 0 ? ' is-head' : '');
+      box.append(d);
+    }
+  }
+
+  /** テンポを決めて、曲に覚えさせる（端末間の同期にも乗る） */
+  function setSongBpm(v) {
+    const bpm = Metronome.setBpm(v);
+    $('bpm-input').value = bpm;
+    if (current && current.bpm !== bpm) {
+      current.bpm = bpm;
+      current.updatedAt = Date.now();
+      saveSongs();
+    }
+    return bpm;
+  }
+
+  function toggleMetronome() {
+    if (Metronome.isRunning()) { stopMetronome(); return; }
+    try {
+      Metronome.setBpm($('bpm-input').value);
+      Metronome.start();
+      $('btn-metro').classList.add('is-on');
+      $('btn-metro').setAttribute('aria-label', 'メトロノームを止める');
+    } catch (e) {
+      toast(e.message || '音を出せませんでした');
+    }
+  }
+
+  function stopMetronome() {
+    if (typeof Metronome === 'undefined') return;
+    if (Metronome.isRunning()) Metronome.stop();
+    const b = $('btn-metro');
+    if (b) { b.classList.remove('is-on'); b.setAttribute('aria-label', 'メトロノームを鳴らす'); }
+  }
+
+  function cycleBeats() {
+    const cur = Metronome.getBeats();
+    const i = BEAT_CHOICES.indexOf(cur);
+    const next = BEAT_CHOICES[(i + 1) % BEAT_CHOICES.length];
+    Metronome.setBeats(next);
+    $('btn-beats').textContent = next + '拍';
+    renderBeatDots();
+    if (current && current.beats !== next) {
+      current.beats = next;
+      current.updatedAt = Date.now();
+      saveSongs();
+    }
+  }
+
+  /* ───── タップでテンポ ───── */
+
+  function openTapSheet() {
+    TapTempo.reset();
+    $('tap-bpm').textContent = '—';
+    $('tap-hint').textContent = '曲に合わせて、ここを一定のリズムでタップ';
+    $('tap-apply').disabled = true;
+    $('backdrop').hidden = false;
+    $('tapsheet').hidden = false;
+  }
+
+  function closeTapSheet() {
+    $('tapsheet').hidden = true;
+    if ($('chordsheet').hidden && $('syncsheet').hidden) $('backdrop').hidden = true;
+  }
+
+  function tapOnce() {
+    const bpm = TapTempo.tap();
+    const n = TapTempo.count();
+    try { Metronome.tick(n === 1); } catch (e) { /* 音が出せなくても数えるのは続ける */ }
+
+    const pad = $('tap-pad');
+    pad.classList.add('is-hit');
+    setTimeout(() => pad.classList.remove('is-hit'), 70);
+
+    if (bpm == null) {
+      $('tap-bpm').textContent = '—';
+      $('tap-hint').textContent = 'そのまま続けてタップ…';
+      return;
+    }
+    $('tap-bpm').textContent = bpm;
+    $('tap-hint').textContent = (n < 5)
+      ? `${n}回目。あと数回叩くと安定します`
+      : `${n}回ぶんの平均。よければ「この値にする」`;
+    $('tap-apply').disabled = false;
+  }
+
+  function applyTap() {
+    const bpm = TapTempo.current();
+    if (bpm == null) return;
+    setSongBpm(bpm);
+    closeTapSheet();
+    toast('テンポを ' + bpm + ' にしました');
+  }
+
+  /* ══════════ 同期（Dropbox） ══════════ */
+
+  let syncTimer = null;
+  let lastAutoSync = 0;
+
+  /** 変更のあと少し待ってから同期する（続けて編集しても1回にまとまる） */
+  function scheduleSync() {
+    if (typeof Sync === 'undefined' || !Sync.configured() || !Sync.connected()) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => runSync(false), 2500);
+  }
+
+  async function runSync(manual) {
+    if (!Sync.configured() || !Sync.connected()) return;
+    renderSyncLine('busy');
+    try {
+      const res = await Sync.syncNow(
+        () => songs,
+        (merged) => {
+          // 同期中に手元で編集されていても消さないよう、今の手元ともう一度まとめる
+          songs = Sync._merge(songs, merged);
+          saveSongs({ fromSync: true });
+          renderLibrary();
+          if (current) {
+            const fresh = findLive(current.id);
+            if (!fresh) { current = null; show('library'); }
+          }
+        }
+      );
+      lastAutoSync = Date.now();
+      renderSyncLine();
+      if (manual) {
+        const bits = [];
+        if (res.pulled) bits.push('受け取り');
+        if (res.pushed) bits.push('送信');
+        toast(bits.length ? `同期しました（${bits.join('・')}）` : '同期済みです（変更なし）');
+      }
+    } catch (e) {
+      renderSyncLine();
+      if (manual) toast(e.message || '同期できませんでした');
+    }
+    if (!$('syncsheet').hidden) renderSyncSheet();
+  }
+
+  function fmtTime(t) {
+    if (!t) return '';
+    const d = new Date(t), now = new Date();
+    const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    return d.toDateString() === now.toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+  }
+
+  /** ライブラリの検索欄の下に出す、同期の状態 */
+  function renderSyncLine(mode) {
+    const el = $('sync-line');
+    if (typeof Sync === 'undefined' || !Sync.configured() || !Sync.connected()) { el.hidden = true; return; }
+    const st = Sync.state();
+    el.hidden = false;
+    el.classList.toggle('is-busy', mode === 'busy');
+    el.classList.toggle('is-error', !mode && !!st.lastError);
+    if (mode === 'busy') el.textContent = '⟳ Dropbox と同期中…';
+    else if (st.lastError) el.textContent = '⚠ 同期できませんでした（タップで詳細）';
+    else el.textContent = st.lastSync ? `✓ Dropbox と同期済み（${fmtTime(st.lastSync)}）` : 'Dropbox に接続済み';
+  }
+
+  function openSyncSheet() {
+    closeMenu();
+    renderSyncSheet();
+    $('backdrop').hidden = false;
+    $('syncsheet').hidden = false;
+  }
+
+  function closeSyncSheet() {
+    $('syncsheet').hidden = true;
+    if ($('chordsheet').hidden && $('tapsheet').hidden) $('backdrop').hidden = true;
+  }
+
+  function renderSyncSheet() {
+    const box = $('sync-body');
+    const st = Sync.state();
+
+    // 1) App key が無い
+    if (!Sync.configured()) {
+      box.innerHTML =
+        '<p>端末間で曲を同期するには、最初に1回だけ Dropbox 側で準備が必要です。</p>' +
+        '<p>手順は <b>README の「端末間の同期」</b> にあります。そこで表示される <b>App key</b> を下に貼り付けてください。</p>' +
+        '<label class="field"><span class="field__label">App key</span>' +
+        '<input type="text" id="sync-appkey" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="例: abc123xyz"></label>' +
+        '<button class="btn btn--accent" data-sync="save-key">保存する</button>';
+      return;
+    }
+
+    // 2) 接続していない
+    if (!Sync.connected()) {
+      const standalone = Sync.isStandalone();
+      box.innerHTML =
+        (st.lastError ? `<div class="syncsheet__state is-err">${esc(st.lastError)}</div>` : '') +
+        '<p>この端末を Dropbox につなぎます。曲データは Dropbox の<b>このアプリ専用のフォルダ</b>だけに置かれ、他のファイルには触れません。</p>' +
+        (standalone
+          ? '<p>ホーム画面から開いているので、<b>コードを貼り付ける方法</b>で接続します。</p>'
+          : '<button class="btn btn--accent" data-sync="connect">Dropbox に接続する</button>' +
+            '<p style="margin-top:12px">うまく戻ってこない場合は、下の方法を使ってください。</p>') +
+        '<button class="btn btn--ghost" data-sync="open-code">① Dropbox の画面を開く</button>' +
+        '<label class="field" style="margin-top:8px"><span class="field__label">② 表示されたコードを貼り付け</span>' +
+        '<input type="text" id="sync-code" autocomplete="off" autocapitalize="off" spellcheck="false"></label>' +
+        '<button class="btn btn--ghost" data-sync="submit-code">③ このコードで接続する</button>' +
+        (Sync.hasBuiltInKey() ? '' : '<button class="btn btn--ghost" data-sync="reset-key">App key を入れ直す</button>');
+      return;
+    }
+
+    // 3) 接続済み
+    const last = st.lastSync ? fmtTime(st.lastSync) : 'まだ';
+    box.innerHTML =
+      (st.lastError
+        ? `<div class="syncsheet__state is-err">${esc(st.lastError)}</div>`
+        : `<div class="syncsheet__state is-ok">接続済み。最後に同期: <b>${last}</b>` +
+          (st.count != null ? `　/　曲数 <b>${st.count}</b>` : '') + '</div>') +
+      '<p>曲を保存・削除すると、少しあとで自動的に同期します。アプリを開き直したときも同期します。</p>' +
+      '<button class="btn btn--accent" data-sync="now">今すぐ同期</button>' +
+      '<p style="margin-top:14px">同じ曲を2台で同時に直した場合は、<b>あとから保存したほう</b>が残ります。</p>' +
+      '<button class="btn btn--danger-ghost" data-sync="disconnect">この端末の接続を切る</button>';
+  }
+
+  async function onSyncAction(act) {
+    try {
+      switch (act) {
+        case 'save-key': {
+          const v = ($('sync-appkey').value || '').trim();
+          if (!/^[a-z0-9]{8,32}$/i.test(v)) { toast('App key の形が違うようです'); return; }
+          Sync.setAppKey(v);
+          renderSyncSheet();
+          break;
+        }
+        case 'reset-key':
+          Sync.setAppKey('');
+          renderSyncSheet();
+          break;
+        case 'connect':
+          location.href = await Sync.beginConnect(true);
+          break;
+        case 'open-code': {
+          const url = await Sync.beginConnect(false);
+          const w = window.open(url, '_blank');
+          if (!w) location.href = url;          // 別窓を開けない環境では同じ画面で開く
+          break;
+        }
+        case 'submit-code': {
+          const code = ($('sync-code').value || '').trim();
+          if (!code) { toast('コードを貼り付けてください'); return; }
+          await Sync.exchange(code);
+          toast('Dropbox に接続しました');
+          renderSyncSheet();
+          await runSync(true);
+          break;
+        }
+        case 'now':
+          await runSync(true);
+          break;
+        case 'disconnect':
+          if (!confirm('この端末と Dropbox の接続を切ります。Dropbox 側の曲データは残ります。')) return;
+          await Sync.disconnect();
+          renderSyncLine();
+          renderSyncSheet();
+          toast('接続を切りました');
+          break;
+      }
+    } catch (e) {
+      toast(e.message || 'うまくいきませんでした');
+      renderSyncSheet();
+    }
   }
 
   /* ══════════ イベント ══════════ */
@@ -1067,7 +1375,8 @@
     $('btn-delete').addEventListener('click', () => {
       if (!editingId) return;
       if (!confirm('この曲を削除します。元に戻せません。')) return;
-      songs = songs.filter(s => s.id !== editingId);
+      const idx = songs.findIndex(s => s.id === editingId);
+      if (idx >= 0) songs[idx] = { id: editingId, deleted: true, updatedAt: Date.now() };
       saveSongs();
       renderLibrary();
       current = null;
@@ -1079,7 +1388,36 @@
 
     $('toolbar').addEventListener('click', (e) => {
       const b = e.target.closest('[data-act]');
-      if (b) onToolbarAction(b.dataset.act);
+      if (!b) return;
+      const act = b.dataset.act;
+      if (act === 'bpm-down') { setSongBpm(Metronome.getBpm() - 1); return; }
+      if (act === 'bpm-up')   { setSongBpm(Metronome.getBpm() + 1); return; }
+      onToolbarAction(act);
+    });
+
+    // メトロノーム
+    $('btn-metro').addEventListener('click', toggleMetronome);
+    $('btn-beats').addEventListener('click', cycleBeats);
+    $('bpm-input').addEventListener('change', (e) => setSongBpm(e.target.value));
+    $('bpm-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
+    Metronome.onBeat((beat) => {
+      const dots = $('beat-dots').children;
+      for (let i = 0; i < dots.length; i++) dots[i].classList.toggle('is-on', i === beat);
+    });
+
+    // タップでテンポ（押した瞬間に数えるため click ではなく pointerdown）
+    $('btn-tap').addEventListener('click', openTapSheet);
+    $('tap-pad').addEventListener('pointerdown', (e) => { e.preventDefault(); tapOnce(); });
+    $('tap-reset').addEventListener('click', openTapSheet);
+    $('tap-apply').addEventListener('click', applyTap);
+    $('tap-close').addEventListener('click', closeTapSheet);
+
+    // 同期
+    $('sync-line').addEventListener('click', openSyncSheet);
+    $('sync-close').addEventListener('click', closeSyncSheet);
+    $('sync-body').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-sync]');
+      if (b) onSyncAction(b.dataset.sync);
     });
     $('btn-toolbar-toggle').addEventListener('click', () => {
       $('toolbar').classList.toggle('is-collapsed');
@@ -1101,7 +1439,7 @@
     $('sheet').addEventListener('wheel',      () => { if (rafId) stopScroll(); }, { passive: true });
 
     $('cs-close').addEventListener('click', closeChordSheet);
-    $('backdrop').addEventListener('click', closeChordSheet);
+    $('backdrop').addEventListener('click', () => { closeChordSheet(); closeTapSheet(); closeSyncSheet(); });
 
     $('import-file').addEventListener('change', (e) => {
       const f = e.target.files && e.target.files[0];
@@ -1110,9 +1448,20 @@
     });
 
     window.addEventListener('keydown', (e) => {
+      if (!$('tapsheet').hidden) {
+        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (!e.repeat) tapOnce(); return; }
+        if (e.key === 'Escape') { closeTapSheet(); return; }
+      }
+      if (e.key === 'Escape') { closeChordSheet(); closeSyncSheet(); }
       if (!$('screen-view').classList.contains('is-active')) return;
-      if (e.key === 'Escape') { closeChordSheet(); return; }
+      if (e.target && e.target.tagName === 'INPUT') return;          // テンポ入力中は奪わない
       if (e.key === ' ') { e.preventDefault(); rafId ? stopScroll() : startScroll(); }
+    });
+
+    // アプリに戻ってきたら同期する（連続しないよう20秒あける）
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastAutoSync > 20000) runSync(false);
     });
   }
 
@@ -1122,6 +1471,19 @@
   applyTheme();
   bind();
   renderLibrary();
+
+  (async () => {
+    try {
+      if (await Sync.handleRedirect()) {
+        toast('Dropbox に接続しました');
+        openSyncSheet();
+      }
+    } catch (e) {
+      toast(e.message || 'Dropbox に接続できませんでした');
+    }
+    renderSyncLine();
+    if (Sync.configured() && Sync.connected()) runSync(false);
+  })();
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     window.addEventListener('load', () => {
