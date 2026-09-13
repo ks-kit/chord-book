@@ -19,7 +19,7 @@ const Sync = (() => {
 
   /* Dropbox の開発者ページで作ったアプリの App key。公開してよい値。
      空のときは、画面から貼り付けた値（端末ごとに保存）を使う。 */
-  const APP_KEY = '';
+  const APP_KEY = '2isrviyoa3hd7j2';
 
   const AUTH_URL  = 'https://www.dropbox.com/oauth2/authorize';
   const TOKEN_URL = 'https://api.dropboxapi.com/oauth2/token';

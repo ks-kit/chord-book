@@ -150,6 +150,9 @@ MusicBrainz も試したが 503 で使えなかった。
 
 ### 同期（2026-09-13）
 
+- **Dropbox アプリ: App key `2isrviyoa3hd7j2`**（`sync.js` の `APP_KEY` に組み込み済み。公開してよい値）。アクセスの種類は App folder。**App secret は使わないし、リポジトリに入れてはいけない**
+- 登録済みの Redirect URI: `https://ks-kit.github.io/chord-book/` と `http://localhost:8766/`（2026-09-13 に Dropbox の認可画面がエラーを出さないことで確認）。公開先の URL を変えたら Dropbox 側にも追加すること
+
 - **認証は PKCE**（秘密鍵なし）。パラメータは Dropbox 公式 SDK `dropbox-sdk-js/src/auth.js` で確認した。トークン交換でも `client_id` は必須で、`client_secret` の代わりに `code_verifier` を送る。`token_access_type=offline` で更新用トークンが取れ、更新時も `client_id` だけで秘密鍵は要らない
 - ⚠ **認可で `redirect_uri` を付けたら交換でも同じ値を付ける。付けなかったら交換でも付けない。** 食い違うと拒否される
 - ⚠ **iPhone のホーム画面アプリは Safari と保存領域が別。** Dropbox から戻る先が Safari 側になると、アプリ側に保存した verifier が読めず接続できない。そのため**コードを貼り付けて接続する方式**も用意し、ホーム画面から開いている時はそちらを案内する（`Sync.isStandalone()`）
