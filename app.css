@@ -256,6 +256,8 @@ button { background: none; border: 0; cursor: pointer; }
 .ch-rest { font-size: .7em; font-weight: 700; letter-spacing: 0; }
 .seg__ch--tap:active { background: var(--surface-2); background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .seg__ch--filler { color: var(--text-faint); font-weight: 500; font-size: .84em; }
+/* 読めなかったコード: 薄い赤で点線の下線。直す場所だと分かるように */
+.seg__ch--unread { color: var(--danger); opacity: .75; text-decoration: underline dotted; text-underline-offset: 3px; }
 .seg__ly { white-space: pre; }
 .seg__ly { min-height: 1.35em; }   /* 歌詞が無くてもコードの段を保つ */
 /* コードが無い枠は、高さ（ベースライン）だけ残して幅は取らせない */

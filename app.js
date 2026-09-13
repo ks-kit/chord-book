@@ -653,8 +653,10 @@
           fillChordLabel(ch, name);
           ch.dataset.chord = name;
         } else if (seg.filler) {
-          ch.className = 'seg__ch seg__ch--filler';
+          // 読めなかった語は、記号（| や x2）と区別して「直す場所」と分かる見た目にする
+          ch.className = 'seg__ch seg__ch--filler' + (seg.unread ? ' seg__ch--unread' : '');
           ch.textContent = seg.filler;
+          if (seg.unread) ch.title = '読み取れなかったコード。編集で直してください';
         } else {
           // コードが無い枠。ふつうの空白だと CSS の空白処理で消えて枠の高さが 0 になり、
           // ベースライン揃えの基準がずれるので、消えない空白を入れる

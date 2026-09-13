@@ -26,7 +26,22 @@ const Sheet = (() => {
   }
 
   function stripWrap(tok) {
-    return tok.replace(/^[（(\[【]+/, '').replace(/[）)\]】]+$/, '');
+    let t = tok.replace(/^[（(\[【]+/, '').replace(/[）)\]】]+$/, '');
+    // 「Em7|」のように小節線がくっついたものは線を外す（線だけの語はそのまま残す）
+    if (t.length > 1) t = t.replace(/^[|｜]+/, '').replace(/[|｜]+$/, '');
+    return t;
+  }
+
+  /**
+   * コード行の中にある「コードでも記号でもない語」が、OCR の読み崩れ（onc、AonCc# 等）なのか、
+   * 英語の歌詞の単語なのかを見分ける。英単語らしければ true。
+   */
+  function looksLikeWord(t) {
+    const letters = t.replace(/[^A-Za-z]/g, '');
+    // on＋ベース音（onC、onc）は分数コードの読み崩れなので単語ではない
+    if (/on[A-Ga-g][#b]?$/i.test(t)) return false;
+    // 小文字が3つ以上続けば英単語とみなす（the、sound、baby など）
+    return /[a-z]{3,}/.test(letters);
   }
 
   /** 桁を保ったまま扱いやすくする（全角スペース=幅2、タブ=4桁） */
@@ -41,15 +56,21 @@ const Sheet = (() => {
     if (JP_RE.test(s)) return false;              // 日本語が混ざる行は歌詞
     const tokens = s.trim().split(/\s+/);
     if (tokens.length > 24) return false;
-    let chordCount = 0;
+    let chordCount = 0, other = 0, wordy = 0;
     for (const raw of tokens) {
       const t = stripWrap(raw);
       if (!t) continue;
       if (Chords.isChordToken(t)) { chordCount++; continue; }
       if (FILLER.has(t)) continue;
-      return false;                                // コードでも記号でもない語がある
+      other++;
+      if (looksLikeWord(t)) wordy++;
     }
-    return chordCount > 0;
+    if (chordCount === 0) return false;
+    if (other === 0) return true;
+    /* 読めない語が混ざっていても、コードが大半で英単語らしい語が無ければコード行とみなす。
+       以前は1語でも混ざると行ごと歌詞扱いになり、OCR で1つだけ崩れたコード
+       （onc、AonCc# など）があるとコード行が歌詞として表示された（2026-09-13）。 */
+    return wordy === 0 && chordCount >= 2 && chordCount >= (chordCount + other) * 0.6;
   }
 
   function isSectionLine(line) {
@@ -74,6 +95,9 @@ const Sheet = (() => {
         out.push({ text: token, col, filler: false });
       } else if (FILLER.has(token)) {
         out.push({ text: token, col, filler: true });
+      } else if (token) {
+        // 読めなかった語も消さずに、薄い色で位置どおり出す（直す場所だと分かるように）
+        out.push({ text: token, col, filler: true, unread: true });
       }
     }
     return out;
@@ -111,6 +135,7 @@ const Sheet = (() => {
       segs.push({
         chord: chords[i].filler ? null : chords[i].text,
         filler: chords[i].filler ? chords[i].text : null,
+        unread: !!chords[i].unread,
         lyric: chars.slice(from, Math.max(from, to)).join('')
       });
     }
