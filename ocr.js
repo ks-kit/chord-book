@@ -401,29 +401,112 @@ const Ocr = (() => {
    */
   function pairToText(chordLine, lyricLine) {
     const frags = lyricLine.words;
-    // 断片を左から連結したものが歌詞。各断片の開始桁を先に出す
+    /* 断片を左から連結したものが歌詞。各断片の開始桁を先に出す。
+       日本語は間を空けずにつなぐが、英語は単語ごとに OCR の枠が分かれているので、
+       そのままつなぐと「Amazinggrace」のように全部くっつく（2026-09-13 に発生）。
+       英字どうしの境目で、画像の上でも間が空いていれば空白を入れる。 */
     const startCol = [];
-    let col = 0;
-    for (const f of frags) {
+    let col = 0, lyricText = '';
+    for (let i = 0; i < frags.length; i++) {
+      const f = frags[i];
+      if (i > 0 && needsSpace(frags[i - 1], f, lyricLine.h)) {
+        lyricText += ' ';
+        col += 1;
+      }
       startCol.push(col);
+      lyricText += f.text;
       col += Sheet.displayWidth(f.text);
     }
-    const lyricText = frags.map(f => f.text).join('');
 
+    /* コードの x 座標を、歌詞の何桁目にあたるかに直す。
+       以前は「一番近い断片の頭」に合わせていたが、コードが歌詞の末尾より右にあると
+       2つのコードが最後の単語に吸い寄せられ、2つ目が単語の途中に押し込まれて
+       「so und」のように単語が割れて見えた（2026-09-13）。 */
+    const endCol = col;
+
+    /* 各文字の左端の x を求め、コードに一番近い文字に合わせる。
+       ・英単語は OCR の枠が正確なので、枠の中を文字数で割る
+       ・日本語は OCR の文字の枠が不正確（1文字ぶんずれる、極端に広い、後ろの文字まで覆う）。
+         細かい枠は使わず、すき間で区切った「連なり」ごとに端から端までを均等に割る。
+         （枠をそのまま使うと、正解つき画像で日本語のコードが5件すべて1文字左にずれた） */
+    const isCjkText = (t) => {
+      const a = Array.from(t);
+      return a.filter(isWideChar).length * 2 >= a.length;
+    };
+    const splitGap = lyricLine.h * SPLIT_GAP_RATIO;
+    const slots = [];
+    for (let i = 0; i < frags.length;) {
+      if (isCjkText(frags[i].text)) {
+        let j = i;
+        while (j + 1 < frags.length && isCjkText(frags[j + 1].text) &&
+               frags[j + 1].x0 - frags[j].x1 <= splitGap) j++;
+        const cols = [];
+        for (let k = i; k <= j; k++) {
+          let c = startCol[k];
+          for (const ch of Array.from(frags[k].text)) { cols.push(c); c += Sheet.displayWidth(ch); }
+        }
+        const x0 = frags[i].x0, x1 = frags[j].x1, n = cols.length;
+        cols.forEach((c, idx) => slots.push({ col: c, x: x0 + (x1 - x0) * idx / n }));
+        i = j + 1;
+      } else {
+        const f = frags[i], arr = Array.from(f.text);
+        let c = startCol[i];
+        arr.forEach((ch, idx) => {
+          slots.push({ col: c, x: f.x0 + (f.x1 - f.x0) * idx / arr.length });
+          c += Sheet.displayWidth(ch);
+        });
+        i++;
+      }
+    }
+    const lastRight = frags.length ? frags[frags.length - 1].x1 : 0;
+
+    function columnForX(x) {
+      if (!slots.length) return 0;
+      if (x >= lastRight - 2) return endCol;           // 歌詞の末尾より右 → 歌詞のあと
+      let best = slots[0], bd = Infinity;
+      for (const s of slots) {
+        const d = Math.abs(s.x - x);
+        if (d < bd) { bd = d; best = s; }
+      }
+      return best.col;
+    }
     let out = '';
     for (const w of chordLine.words) {
       const label = w.chord || w.filler || w.text;
-      // そのコードの真下（または直後）にある断片を探す
-      let idx = -1, best = Infinity;
-      for (let i = 0; i < frags.length; i++) {
-        const d = Math.abs(frags[i].x0 - w.x0);
-        if (d < best) { best = d; idx = i; }
-      }
-      let c = (idx >= 0 && best <= chordLine.h * 6) ? startCol[idx] : 0;
+      let c = columnForX(w.x0);
       if (out.length && c < out.length + 1) c = out.length + 1;
       out += ' '.repeat(Math.max(0, c - out.length)) + label;
     }
     return [out, lyricText];
+  }
+
+  /* 日本語の連なりを「すき間」で区切る基準（文字の高さに対する比）。
+     OCR の枠の誤差で生じる見かけのすき間は最大 15px、本当のすき間は約 27px（h≈28）と実測。
+     正解つき画像（すき間なし5行＋すき間あり4行・計36コード）で
+     0.55 と 0.75 は 36/36、1.0 は 35/36。うまくいく範囲の中ほどの 0.75 を採る。 */
+  const SPLIT_GAP_RATIO = 0.75;
+
+  /** 全角寄りの文字か（日本語の文字どうしの間には空白を入れない） */
+  function isWideChar(ch) {
+    return !!ch && /[^\x00-\x7F]/.test(ch);
+  }
+
+  /**
+   * 2つの断片のあいだに空白を入れるべきか。
+   * 日本語どうしなら入れない。それ以外（英語どうし、日本語と英語）は、
+   * 画像の上で文字間より広く空いていれば単語の区切りとみなす。
+   */
+  function needsSpace(prev, next, h) {
+    const a = Array.from(prev.text).pop();
+    const b = Array.from(next.text)[0];
+    if (isWideChar(a) && isWideChar(b)) return false;
+    const gap = next.x0 - prev.x1;
+    /* 英字どうし: OCR は英単語を空白でしか区切らないので、枠が離れていれば空白。
+       日本語と英字の境目: 日本語の文字は枠に左右の余白を含むので、実際の空白より
+       狭く測られる（実測で空白ありでも 5px、h=28）。低めの基準で見る。 */
+    const bothLatin = !isWideChar(a) && !isWideChar(b);
+    const limit = bothLatin ? 1 : Math.max(2, h * 0.10);
+    return gap > limit;
   }
 
   /** 歌詞が無いコード行（イントロ等）を、間隔を保って文字列にする */
@@ -482,11 +565,14 @@ const Ocr = (() => {
    * 1行ずつ認識すると1行あたり約1秒かかるので、
    * 歌詞行だけを切り出して1枚の画像に積み直し、まとめて1回で認識する。
    */
-  async function refineLyrics(w, canvas, lines, onStage) {
-    const targets = lines.filter(l => l.kind === 'lyric' && l.words.length);
-    if (!targets.length) return 0;
-
-    onStage && onStage('歌詞を読み直し中…');
+  /**
+   * 指定した行だけを切り出して1枚に積み直し、指定の言語でまとめて1回で認識する。
+   * 1行ずつ認識すると1行あたり約1秒かかるため（27行で30秒）。
+   * 返り値: 行ごとの単語（元の画像の座標に戻したもの）の Map
+   */
+  async function stackRead(w, canvas, targets, lang) {
+    const result = new Map();
+    if (!targets.length) return result;
 
     const PAD = 10, GAP = 18;
     let stackW = 0, stackH = PAD;
@@ -505,7 +591,7 @@ const Ocr = (() => {
     }
     stackH += PAD;
     stackW += PAD * 2;
-    if (stackW < 16 || stackH < 16) return 0;
+    if (stackW < 16 || stackH < 16) return result;
 
     const cv = document.createElement('canvas');
     cv.width = stackW;
@@ -513,48 +599,132 @@ const Ocr = (() => {
     const cx = cv.getContext('2d');
     cx.fillStyle = '#fff';
     cx.fillRect(0, 0, stackW, stackH);
-    for (const b of boxes) {
-      cx.drawImage(canvas, b.sx, b.sy, b.sw, b.sh, PAD, b.dy, b.sw, b.sh);
-    }
+    for (const b of boxes) cx.drawImage(canvas, b.sx, b.sy, b.sw, b.sh, PAD, b.dy, b.sw, b.sh);
 
-    quiet = true;
-    let data;
+    let data = null;
     try {
-      await setLang(w, 'jpn');
+      await setLang(w, lang);
       await w.setParameters({ preserve_interword_spaces: '1', tessedit_pageseg_mode: '6' });
-      const res = await w.recognize(cv, {}, { blocks: true });
-      data = res.data;
+      data = (await w.recognize(cv, {}, { blocks: true })).data;
     } catch (e) {
       data = null;
+    }
+    if (!data) return result;
+
+    const got = collectWords(data);
+    for (const b of boxes) {
+      const mine = got
+        .filter(g => {
+          const cy = (g.y0 + g.y1) / 2;
+          return cy >= b.dy - GAP / 2 && cy < b.dy + b.sh + GAP / 2;
+        })
+        .sort((a, c) => a.x0 - c.x0)
+        .map(g => ({
+          text: g.text,
+          x0: g.x0 - PAD + b.sx, x1: g.x1 - PAD + b.sx,
+          y0: g.y0 - b.dy + b.sy, y1: g.y1 - b.dy + b.sy,
+          conf: g.conf
+        }));
+      if (mine.length) result.set(b.line, mine);
+    }
+    return result;
+  }
+
+  const LATIN = /[A-Za-z]/;
+  const LATIN2 = /[A-Za-z].*[A-Za-z]/;
+
+  /** 英字だけでできた語か（記号・数字の混ざりは許す） */
+  function isLatinWord(t) {
+    return LATIN.test(t) && !JP.test(t);
+  }
+
+  /** 2つの枠が横方向にどれだけ重なっているか（0〜1） */
+  function overlapRatio(a, b) {
+    const ov = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+    if (ov <= 0) return 0;
+    return ov / Math.max(1, Math.min(a.x1 - a.x0, b.x1 - b.x0));
+  }
+
+  /**
+   * 英語でよくある誤読を直す。歌詞行にだけ使う（コード行には使わない）。
+   *   1 / | / l / ! が1文字だけの語 → I     （I once → 1 once、now I see → now | see）
+   *   1'm / |'ve のように I で始まる短縮形 → I'm / I've
+   */
+  function fixEnglishWords(words) {
+    for (let i = 0; i < words.length; i++) {
+      const t = words[i].text;
+      const prev = words[i - 1], next = words[i + 1];
+      const nearLatin = (prev && isLatinWord(prev.text)) || (next && isLatinWord(next.text));
+      if (/^[1|l!\]\[]$/.test(t) && nearLatin) {
+        words[i].text = 'I';
+        continue;
+      }
+      if (/^[1|!]['’](m|ve|ll|d)$/i.test(t)) {
+        words[i].text = 'I' + t.slice(1);
+      }
+    }
+  }
+
+  /**
+   * 歌詞行を、その言語専用のモデルで読み直す。
+   *   日本語を含む行 … jpn 単独で読み直す（混在モデルだと小さい日本語が英字に化ける）
+   *   英語を含む行   … eng 単独で読み直す（混在モデルだと I が 1 や | に、Don't が Dontt になる）
+   *   日英混在の行   … jpn で読んだあと、英単語の部分だけ eng の結果に差し替える
+   */
+  async function refineLyrics(w, canvas, lines, onStage) {
+    const lyric = lines.filter(l => l.kind === 'lyric' && l.words.length);
+    if (!lyric.length) return 0;
+
+    onStage && onStage('歌詞を読み直し中…');
+    quiet = true;
+    let fixed = 0;
+
+    try {
+      /* 1) すべての歌詞行を jpn で読み直す。
+         「日本語を含む行だけ」に絞ってはいけない。最初の読み取り（混在モデル）は
+         小さい日本語を英字に化けさせる（振り向かないで → HUA AGUS）ので、
+         その結果で日本語の有無を判定すると、日本語の行を英語の行と取り違える。
+         （2026-09-13 に「Don't look back FRUMIDBWE」となって発覚） */
+      const jpRes = await stackRead(w, canvas, lyric, 'jpn');
+      for (const [line, words] of jpRes) {
+        if (!JP.test(words.map(x => x.text).join(''))) continue;   // 日本語が出てこないなら採用しない
+        line.words = words;
+        line.text = words.map(x => x.text).join(' ');
+        fixed++;
+      }
+
+      // 2) 英語を含む行は eng で（判定は jpn で読み直した後の中身で行う）
+      const enLines = lyric.filter(l => LATIN2.test(l.words.map(x => x.text).join(' ')));
+      const enRes = await stackRead(w, canvas, enLines, 'eng');
+      for (const [line, words] of enRes) {
+        const hasJp = line.words.some(x => JP.test(x.text));
+        if (!hasJp) {
+          // 英語だけの行は丸ごと差し替える
+          if (!LATIN2.test(words.map(x => x.text).join(''))) continue;
+          line.words = words;
+          fixed++;
+        } else {
+          // 日英混在の行は、英単語の枠だけ eng の読みに差し替える
+          for (const cur of line.words) {
+            if (!isLatinWord(cur.text)) continue;
+            let best = null, bestOv = 0;
+            for (const e of words) {
+              if (!isLatinWord(e.text)) continue;
+              const ov = overlapRatio(cur, e);
+              if (ov > bestOv) { bestOv = ov; best = e; }
+            }
+            if (best && bestOv >= 0.5) cur.text = best.text;
+          }
+        }
+        fixEnglishWords(line.words);
+        line.text = line.words.map(x => x.text).join(' ');
+      }
     } finally {
       try {
         await setLang(w, ['jpn', 'eng']);
         await w.setParameters({ preserve_interword_spaces: '1', tessedit_pageseg_mode: '6' });
       } catch (e) { /* 戻せなくても続行 */ }
       quiet = false;
-    }
-    if (!data) return 0;
-
-    const got = collectWords(data);
-    let fixed = 0;
-    for (const b of boxes) {
-      const mine = got.filter(g => {
-        const cy = (g.y0 + g.y1) / 2;
-        return cy >= b.dy - GAP / 2 && cy < b.dy + b.sh + GAP / 2;
-      });
-      if (!mine.length) continue;
-      const joined = mine.map(g => g.text).join('');
-      if (!JP.test(joined)) continue;        // 日本語が出てこないなら採用しない
-
-      mine.sort((a, c) => a.x0 - c.x0);
-      b.line.words = mine.map(g => ({
-        text: g.text,
-        x0: g.x0 - PAD + b.sx, x1: g.x1 - PAD + b.sx,
-        y0: g.y0 - b.dy + b.sy, y1: g.y1 - b.dy + b.sy,
-        conf: g.conf
-      }));
-      b.line.text = b.line.words.map(x => x.text).join(' ');
-      fixed++;
     }
     return fixed;
   }
