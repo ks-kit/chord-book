@@ -885,6 +885,8 @@
     items.push(['sync', 'Dropbox と同期'],
                ['export', 'バックアップを書き出す'], ['import', 'バックアップを読み込む'],
                ['theme', '表示テーマを切り替え']);
+    // PC の Chrome / Edge で、まだ入れていない時だけ出る（iPhone は共有→ホーム画面に追加）
+    if (installPrompt) items.push(['install', 'PC にアプリとして追加']);
 
     menu.innerHTML = items.map(([a, l]) =>
       `<button class="menu__item" data-act="${a}">${l}</button>`).join('');
@@ -892,6 +894,25 @@
   }
 
   function closeMenu() { $('menu').hidden = true; }
+
+  /* PC へのインストール。ブラウザが「入れられる」と知らせてきた時だけ使える */
+  let installPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();          // ブラウザ任せの案内は出さず、メニューから入れてもらう
+    installPrompt = e;
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    toast('追加しました。スタートメニューから開けます');
+  });
+
+  async function installApp() {
+    const p = installPrompt;
+    if (!p) return;
+    installPrompt = null;        // 一度きりしか使えない
+    p.prompt();
+    try { await p.userChoice; } catch (_) {}
+  }
 
   function onMenuAction(act) {
     closeMenu();
@@ -903,6 +924,7 @@
         saveSongs(); renderSheet(); toast('リセットしました');
         break;
       case 'export':    exportBackup(); break;
+      case 'install':   installApp(); break;
       case 'import':    $('import-file').click(); break;
       case 'theme':     toggleTheme(); break;
       case 'sync':      openSyncSheet(); break;
