@@ -21,3 +21,6 @@ desktop.ini
 /*.heic
 /*.webp
 !/icon-*.png
+
+# 取り込んだ曲の点検結果（歌詞の断片が載るので公開しない）
+/チェック_*.html

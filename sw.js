@@ -3,7 +3,7 @@
      vendor/ とアイコン … 中身が変わらず大きい（OCRエンジンで約7MB）ので【キャッシュ優先】
      アプリ本体のファイル … 直した結果をすぐ反映したいので【ネット優先】
 */
-const CACHE = 'chordbook-v4';
+const CACHE = 'chordbook-v5';
 
 const CORE = [
   './',

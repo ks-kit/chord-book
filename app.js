@@ -595,10 +595,12 @@
     root.className = 'ch-root';
     root.textContent = c.root;
     el.append(root);
-    if (c.quality) {
+    // 品質とカッコ付きテンション（(9) など）は小さい字でまとめて出す
+    const rest = c.quality + (c.tension || '');
+    if (rest) {
       const q = document.createElement('span');
       q.className = 'ch-rest';
-      q.textContent = c.quality;
+      q.textContent = rest;
       el.append(q);
     }
     if (c.bass) {
@@ -830,6 +832,7 @@
       const s = Chords.shape(name);
       const notes = [];
       if (s && !s.exact) notes.push('分数コードのベース音は省いた形です');
+      if (s && s.tensionDropped) notes.push(`${s.tensionDropped} は省いた形です`);
       if (s && s.baseFret > 1) notes.push(s.baseFret + 'フレットから始まる形です');
       const capo = current && current.capo ? current.capo : 0;
       if (capo) notes.push(`カポ${capo}フレットを基準に押さえます`);

@@ -26,7 +26,13 @@ const Sheet = (() => {
   }
 
   function stripWrap(tok) {
-    let t = tok.replace(/^[（(\[【]+/, '').replace(/[）)\]】]+$/, '');
+    let t = tok;
+    // 「(C)」のように語全体が囲まれている時だけ外す
+    while (/^[（(\[【]/.test(t) && /[）)\]】]$/.test(t) && t.length > 2) t = t.slice(1, -1);
+    /* 片側だけの括弧は落とす。ただし「Em7(11)」の ) を外すと読めない語になるので、
+       対になる括弧が語の中にある場合は残す（2026-10-24） */
+    if (!/[（(\[【]/.test(t)) t = t.replace(/[）)\]】]+$/, '');
+    if (!/[）)\]】]/.test(t)) t = t.replace(/^[（(\[【]+/, '');
     // 「Em7|」のように小節線がくっついたものは線を外す（線だけの語はそのまま残す）
     if (t.length > 1) t = t.replace(/^[|｜]+/, '').replace(/[|｜]+$/, '');
     return t;

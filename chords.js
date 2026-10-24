@@ -34,10 +34,16 @@ const Chords = (() => {
   /* ベース音は小文字で書かれていることもあるので拾えるようにする */
   const SLASH_RE = /^(.+?)\/([A-Ga-g][#b♯♭]?)$/;
   const ON_RE    = /^(.+?)on([A-Ga-g][#b♯♭]?)$/i;
+  /* 「Em7(11)」「C7(b9)」「CM7(9,13)」のようなカッコ付きテンション。
+     日本のコード譜では普通の書き方なので、書かれたままの表記で受け取る。 */
+  const TENSION_RE =
+    /^(.*?)((?:\(\s*[b#+\-]?\d{1,2}(?:\s*[,、\/]\s*[b#+\-]?\d{1,2})*\s*\))+)$/;
 
   /**
-   * 「Am7/G」「AonC#」などを {root, quality, bass, sep} に分解する。
+   * 「Am7/G」「AonC#」「Em7(11)」などを {root, quality, tension, bass, sep} に分解する。
    * sep は分数コードの区切り方（'/' か 'on'）。元の書き方を保つために覚えておく。
+   * tension は「(9)」のようなカッコ付きの付加音を書かれたまま持つ（押さえ方図では
+   * 可能な範囲だけ反映する。effectiveQuality を見ること）。
    * コードでなければ null。
    */
   function parse(token) {
@@ -54,6 +60,10 @@ const Chords = (() => {
       if (m) { sep = 'on'; body = m[1]; bassRaw = m[2]; }
     }
 
+    let tension = '';
+    const mt = TENSION_RE.exec(body);
+    if (mt) { body = mt[1]; tension = mt[2].replace(/\s+/g, ''); }
+
     const mb = BODY_RE.exec(body);
     if (!mb) return null;
     const root = normalizeNote(mb[1]);
@@ -66,12 +76,28 @@ const Chords = (() => {
       bass = normalizeNote(bassRaw);
       if (bass == null) return null;
     }
-    return { root, quality, bass, sep, text: build(root, quality, bass, sep) };
+    return {
+      root, quality, tension, bass, sep,
+      text: build(root, quality, bass, sep, tension)
+    };
   }
 
   /** 元の区切り方（/ または on）を保ったままコード名を組み立てる */
-  function build(root, quality, bass, sep) {
-    return root + quality + (bass ? (sep === 'on' ? 'on' : '/') + bass : '');
+  function build(root, quality, bass, sep, tension) {
+    return root + quality + (tension || '') +
+           (bass ? (sep === 'on' ? 'on' : '/') + bass : '');
+  }
+
+  /**
+   * 押さえ方図に使う品質を返す。
+   * カッコ付きテンションは、外した綴りが語彙にある時だけ取り込む（Cm7(b5) → m7b5）。
+   * 無い時は本体の押さえ方で出す（Em7(11) → Em7 の形）。
+   * 品質が空の「C(9)」を C9 にすると別のコード（7th入り）になるので取り込まない。
+   */
+  function effectiveQuality(c) {
+    if (!c.tension || !c.quality) return c.quality;
+    const merged = c.quality + c.tension.replace(/[()]/g, '');
+    return QUALITIES.has(merged) ? merged : c.quality;
   }
 
   function normalizeNote(n) {
@@ -135,8 +161,9 @@ const Chords = (() => {
     const root = shift(chordObj.root);
     const bass = chordObj.bass ? shift(chordObj.bass) : null;
     return {
-      root, quality: chordObj.quality, bass, sep: chordObj.sep,
-      text: build(root, chordObj.quality, bass, chordObj.sep)
+      root, quality: chordObj.quality, tension: chordObj.tension || '',
+      bass, sep: chordObj.sep,
+      text: build(root, chordObj.quality, bass, chordObj.sep, chordObj.tension)
     };
   }
 
@@ -234,6 +261,7 @@ const Chords = (() => {
     'dim':   [0, 1, 2, 0, -1, -1],
     'aug':   [0, 3, 2, 1, 1, 0],
     'm7b5':  [0, 1, 0, 0, -1, -1],
+    'mM7':   [0, 2, 1, 0, 0, 0],
     'sus2':  [0, 2, 4, 4, 0, 0]
   };
 
@@ -251,6 +279,7 @@ const Chords = (() => {
     'dim':   [-1, 0, 1, 2, 1, -1],
     'aug':   [-1, 0, 3, 2, 2, 1],
     'm7b5':  [-1, 0, 1, 0, 1, -1],
+    'mM7':   [-1, 0, 2, 1, 1, 0],
     'sus2':  [-1, 0, 2, 2, 0, 0]
   };
 
@@ -266,6 +295,7 @@ const Chords = (() => {
     'dim': 'dim', 'dim7': 'dim', 'o': 'dim', 'o7': 'dim', '°': 'dim', '°7': 'dim',
     'aug': 'aug', '+': 'aug', '+5': 'aug',
     'm7b5': 'm7b5', 'm7-5': 'm7b5', 'ø': 'm7b5', 'ø7': 'm7b5', 'min7b5': 'm7b5',
+    'mM7': 'mM7', 'mMaj7': 'mM7', 'mmaj7': 'mM7', 'minmaj7': 'mM7', 'm#7': 'mM7',
     '7sus4': '7', '9sus4': '7', 'add9': '', 'add2': '', 'madd9': 'm',
     '11': '9', 'm11': 'm9', '13': '9', 'm13': 'm9', 'maj9': 'maj7', 'M9': 'maj7'
   };
@@ -407,37 +437,50 @@ const Chords = (() => {
     return { fret: barre.fret, from: idxs[0], to: idxs[idxs.length - 1] };
   }
 
+  /** その品質の押さえ方（ベース抜き）を作れるか */
+  function hasShape(root, quality) {
+    return !!OPEN_SHAPES[root + quality] || !!barreShape({ root, quality });
+  }
+
   /** コード名から押さえ方を返す。{frets, baseFret, exact, barre} / 見つからなければ null */
   function shape(name) {
     const c = parse(name);
     if (!c) return null;
 
+    /* カッコ付きテンションは、押さえ方に取り込める綴りなら取り込む（Cm7(b5)）。
+       取り込めない綴りや、取り込んだ形の押さえ方が無い綴り（C7(b9) など）は
+       本体の押さえ方で出し、「省いた」と伝える。 */
+    let quality = effectiveQuality(c);
+    if (quality !== c.quality && !hasShape(c.root, quality)) quality = c.quality;
+    const dropped = c.tension && quality === c.quality ? c.tension : null;
+    const mark = (s) => (s && dropped ? Object.assign(s, { tensionDropped: dropped }) : s);
+
     // 1) 辞書に完全一致があればそれを使う
-    const canonical = c.root + c.quality + (c.bass ? '/' + c.bass : '');
+    const canonical = c.root + quality + (c.bass ? '/' + c.bass : '');
     if (OPEN_SHAPES[canonical]) {
-      return normalizeShape(OPEN_SHAPES[canonical], true, OPEN_BARRE[canonical]);
+      return mark(normalizeShape(OPEN_SHAPES[canonical], true, OPEN_BARRE[canonical]));
     }
 
     // 2) 本体（ベース抜き）の押さえ方を用意する
-    const body = c.root + c.quality;
+    const body = c.root + quality;
     let frets, barre;
     if (OPEN_SHAPES[body]) {
       frets = OPEN_SHAPES[body].slice();
       barre = OPEN_BARRE[body] || null;
     } else {
-      const gen = barreShape(c);
+      const gen = barreShape({ root: c.root, quality });
       if (!gen) return null;
       frets = gen.frets;
       barre = gen.barre;
     }
 
-    if (!c.bass) return normalizeShape(frets, true, barre);
+    if (!c.bass) return mark(normalizeShape(frets, true, barre));
 
     // 3) 分数コードは、ベース音が一番低く鳴るように組み替える
     let withBass = applyBass(frets, NOTE_INDEX[c.bass], NOTE_INDEX[c.root]);
-    if (!withBass) return normalizeShape(frets, false, barre);
+    if (!withBass) return mark(normalizeShape(frets, false, barre));
     withBass = ensureRoot(withBass, NOTE_INDEX[c.root]);
-    return normalizeShape(withBass, true, fixBarre(withBass, barre));
+    return mark(normalizeShape(withBass, true, fixBarre(withBass, barre)));
   }
 
   function normalizeShape(frets, exact, barre) {
